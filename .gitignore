@@ -1,0 +1,8 @@
+# Fichiers et dossiers de Visual Studio à ignorer
+.vs/
+*.user
+*.suo
+*.cache
+*.pdb
+bin/
+obj/
