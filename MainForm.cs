@@ -16,6 +16,8 @@ namespace ServiceDeskApp
         private TreeNode favoritesNode;
         private const string favoritesFilePath = @"C:\temp\template\favorites.json";
         private string templateDirectory = @"C:\temp\template";
+        private string userConfigPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ServiceDeskApp", "user_config.json");
+
 
         public MainForm()
         {
@@ -53,6 +55,16 @@ namespace ServiceDeskApp
             this.Controls.Add(addButton);
             this.Controls.Add(editButton);
             this.Controls.Add(searchBox);
+
+            var configureSignatureButton = new Button
+            {
+                Text = "Configure Signature",
+                Dock = DockStyle.Top
+            };
+            configureSignatureButton.Click += OnConfigureSignatureClick;
+            this.Controls.Add(configureSignatureButton);
+
+
         }
 
         private void LoadTemplates()
@@ -96,8 +108,10 @@ namespace ServiceDeskApp
             if (e.Node.Tag is string filePath && File.Exists(filePath))
             {
                 var content = File.ReadAllText(filePath);
+                content = ReplaceSignaturePlaceholder(content); // Remplacement de {signature}
                 Clipboard.SetText(content);
-                MessageBox.Show($"Template '{e.Node.Text}' copied to clipboard!", "Copied", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show($"Template '{e.Node.Text}' copied to clipboard with signature!", "Copied", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
 
                 // Charger les favoris actuels
                 var favorites = LoadFavoriteTemplates();
@@ -269,5 +283,72 @@ namespace ServiceDeskApp
                 }
             }
         }
+        private string LoadUserSignature()
+        {
+            if (!File.Exists(userConfigPath))
+            {
+                return "Cordialement,\nVotre nom"; // Signature par défaut
+            }
+
+            var config = JsonConvert.DeserializeObject<Dictionary<string, string>>(File.ReadAllText(userConfigPath));
+            return config.TryGetValue("signature", out var signature) ? signature : "Cordialement,\nVotre nom";
+            MessageBox.Show($"Loaded Signature: {signature}", "Debug");
+
+        }
+        private void SaveUserSignature(string signature)
+        {
+            var config = new Dictionary<string, string> { { "signature", signature } };
+            var configDirectory = Path.GetDirectoryName(userConfigPath);
+
+            if (!Directory.Exists(configDirectory))
+            {
+                Directory.CreateDirectory(configDirectory);
+            }
+
+            File.WriteAllText(userConfigPath, JsonConvert.SerializeObject(config, Formatting.Indented));
+        }
+        private void OnConfigureSignatureClick(object sender, EventArgs e)
+        {
+            using (var form = new Form())
+            {
+                form.Text = "Configure Signature";
+                form.Size = new System.Drawing.Size(400, 300);
+
+                // Zone de texte multi-lignes
+                var textBox = new TextBox
+                {
+                    Multiline = true,
+                    Dock = DockStyle.Fill,
+                    Text = LoadUserSignature(), // Charger la signature actuelle
+                    ScrollBars = ScrollBars.Vertical // Ajouter une barre de défilement verticale
+                };
+                form.Controls.Add(textBox);
+
+                // Bouton "OK"
+                var okButton = new Button
+                {
+                    Text = "OK",
+                    Dock = DockStyle.Bottom
+                };
+                okButton.Click += (s, args) =>
+                {
+                    SaveUserSignature(textBox.Text); // Sauvegarder la nouvelle signature
+                    MessageBox.Show("Signature updated successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    form.Close();
+                };
+                form.Controls.Add(okButton);
+
+                // Afficher la fenêtre
+                form.ShowDialog();
+            }
+        }
+        private string ReplaceSignaturePlaceholder(string templateContent)
+        {
+            var signature = LoadUserSignature();
+            return templateContent.Replace("{signature}", signature);
+        }
+
+
+
     }
 }
