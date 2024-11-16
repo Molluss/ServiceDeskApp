@@ -5,7 +5,7 @@ namespace ServiceDeskApp.Localization
 {
     public static class LocalizationManager
     {
-        private static ResourceManager resourceManager = new ResourceManager("ServiceDeskApp.Resources", typeof(LocalizationManager).Assembly);
+        private static ResourceManager resourceManager = new ResourceManager("ServiceDeskApp.Localization.Resources", typeof(LocalizationManager).Assembly);
 
         public static string GetTranslation(string key, string language)
         {

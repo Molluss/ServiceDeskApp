@@ -1,5 +1,14 @@
 [
-    "Password Reset",
-    "Network Issue",
-    "Access Request"
+    {
+        "Name": "Test",
+        "Text": "This is a test template."
+    },
+    {
+        "Name": "Network Issue",
+        "Text": "There is a network issue affecting several users."
+    },
+    {
+        "Name": "Access Request",
+        "Text": "Please provide access to the requested resource."
+    }
 ]
