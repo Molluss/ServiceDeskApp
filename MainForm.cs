@@ -6,6 +6,9 @@ using System.Windows.Forms;
 using Newtonsoft.Json;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.Window;
 using System.Text.RegularExpressions;
+using Microsoft.Web.WebView2.WinForms; // Namespace pour WebView2
+using System;
+using System.Windows.Forms;
 
 namespace ServiceDeskApp
 {
@@ -20,153 +23,283 @@ namespace ServiceDeskApp
         private string templateDirectory = @"C:\temp\template";
         private string userConfigPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ServiceDeskApp", "user_config.json");
         private Button syncButton;
-
+        private WebView2 webView;
+        private WebView2 webView2Control; // Déclaration ajoutée ici
+        private string logFilePath = @"C:\Temp\WebView2Log.txt"; // Chemin du fichier log
+        private TextBox generatedTemplateTextBox;
+        private string httpPath = "http://37.114.37.21:8001/";
+        private string onedrivePath = @"C:\Users\Utilisateur\OneDrive\Templates";
+        private string networkPath = @"\\Serveur\Partage\Templates";
 
         public MainForm()
         {
+            
             isDarkMode = LoadThemePreference();
             InitializeComponent();
+            LoadSettings();
             ApplyTheme();
             LoadFavorites();
             LoadTemplates();
-
-            Log("Application started successfully.");
+            InitializeLogging(); // Initialiser le système de log
+            Log("Application started.");
+            //InitializeWebView2(); // Initialiser WebView2
+            //InitializeTicketFields();
+            InitializeTicketTemplateField();
         }
 
         private void InitializeComponent()
         {
-            this.Text = "Service Desk Templates";
-            this.Size = new System.Drawing.Size(400, 600);
+            this.Text = "Service Desk App";
+            this.Size = new System.Drawing.Size(1200, 800); // Main window size
+            this.StartPosition = FormStartPosition.CenterScreen;
 
-            // Initialiser la barre de recherche
-            searchBox = new TextBox
+            // SplitContainer to separate Templates and NRP
+            var splitContainer = new SplitContainer
             {
-                Dock = DockStyle.Top,
-                PlaceholderText = "Search templates..."
+                Dock = DockStyle.Fill,
+                Orientation = Orientation.Vertical,
+                SplitterDistance = 600 // Split between left (Templates) and right (NRP)
             };
-            searchBox.TextChanged += OnSearchTextChanged;
 
-            // Initialiser les boutons Ajouter et Editer
-            addButton = new Button { Text = "Add Template", Dock = DockStyle.Bottom };
-            addButton.Click += OnAddTemplate;
-
-            editButton = new Button { Text = "Edit Template", Dock = DockStyle.Bottom };
-            editButton.Click += OnEditTemplate;
-
-            // Initialiser l'arborescence des templates
+            // Left section: Templates
             templateTreeView = new TreeView
             {
                 Dock = DockStyle.Fill,
-                Font = new System.Drawing.Font("Segoe UI", 12) // Augmenter la taille de la police
+                Font = new System.Drawing.Font("Segoe UI", 12),
+                DrawMode = TreeViewDrawMode.OwnerDrawText
             };
-            templateTreeView.NodeMouseDoubleClick += OnTemplateNodeDoubleClick;
-            // Forcer le mode de dessin
-            templateTreeView.DrawMode = TreeViewDrawMode.OwnerDrawText;
             templateTreeView.DrawNode += TemplateTreeView_DrawNode;
 
-            // Ajouter les contrôles au formulaire
-            this.Controls.Add(templateTreeView);
-            this.Controls.Add(addButton);
-            this.Controls.Add(editButton);
-            this.Controls.Add(searchBox);
-
-            var configureSignatureButton = new Button
+            // Search bar
+            searchBox = new TextBox
             {
-                Text = "Configure Signature",
+                Dock = DockStyle.Top,
+                PlaceholderText = "Search for a template...",
+                Font = new System.Drawing.Font("Segoe UI", 10)
+            };
+            searchBox.TextChanged += OnSearchTextChanged; // Link the search event
+
+            var syncTemplatesButton = new Button
+            {
+                Text = "Synchronize Templates",
+                Dock = DockStyle.Bottom
+            };
+            syncTemplatesButton.Click += async (s, e) => await SyncTemplatesAsync();
+
+            var templatesPanel = new Panel { Dock = DockStyle.Fill };
+            templatesPanel.Controls.Add(templateTreeView);
+            templatesPanel.Controls.Add(syncTemplatesButton);
+            templatesPanel.Controls.Add(searchBox);
+
+            splitContainer.Panel1.Controls.Add(templatesPanel);
+
+            // Right section: NRP
+            var ticketNumberLabel = new Label
+            {
+                Text = "Ticket Number:",
+                Dock = DockStyle.Top,
+                Font = new System.Drawing.Font("Segoe UI", 10)
+            };
+            var ticketNumberTextBox = new TextBox { Dock = DockStyle.Top };
+
+            var ticketSubjectLabel = new Label
+            {
+                Text = "Ticket Subject:",
+                Dock = DockStyle.Top,
+                Font = new System.Drawing.Font("Segoe UI", 10)
+            };
+            var ticketSubjectTextBox = new TextBox { Dock = DockStyle.Top };
+
+            var generateMessageButton = new Button
+            {
+                Text = "Generate Message",
                 Dock = DockStyle.Top
             };
-            configureSignatureButton.Click += OnConfigureSignatureClick;
-            this.Controls.Add(configureSignatureButton);
+            generateMessageButton.Click += (s, e) => GenerateNRPMessage(ticketNumberTextBox.Text, ticketSubjectTextBox.Text);
 
-            var toggleThemeButton = new Button
+            var settingsButton = new Button
             {
-                Text = "Toggle Dark Mode",
+                Text = "Settings",
                 Dock = DockStyle.Top
             };
-            toggleThemeButton.Click += OnToggleThemeClick;
-            this.Controls.Add(toggleThemeButton);
+            settingsButton.Click += OpenSettingsMenu; // Opens the settings menu
 
-            syncButton = new Button
-            {
-                Text = "Sync Templates",
-                Dock = DockStyle.Top
-            };
-            syncButton.Click += async (sender, e) => await SyncTemplatesAsync();
-            this.Controls.Add(syncButton);
+            var nrpPanel = new Panel { Dock = DockStyle.Fill };
+            nrpPanel.Controls.Add(settingsButton);
+            nrpPanel.Controls.Add(generateMessageButton);
+            nrpPanel.Controls.Add(ticketSubjectTextBox);
+            nrpPanel.Controls.Add(ticketSubjectLabel);
+            nrpPanel.Controls.Add(ticketNumberTextBox);
+            nrpPanel.Controls.Add(ticketNumberLabel);
 
+            splitContainer.Panel2.Controls.Add(nrpPanel);
 
+            // Add the SplitContainer to the main window
+            this.Controls.Add(splitContainer);
+
+            templateTreeView.DrawMode = TreeViewDrawMode.OwnerDrawText;
+            templateTreeView.DrawNode += TemplateTreeView_DrawNode;
 
 
         }
 
+
+
+        // Méthode pour générer le message NRP
+        private void GenerateNRPMessage(string ticketNumber, string ticketSubject)
+        {
+            if (string.IsNullOrEmpty(ticketNumber) || string.IsNullOrEmpty(ticketSubject))
+            {
+                MessageBox.Show("Please fill in the ticket number and subject.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Load a predefined template
+            var templatePath = Path.Combine("C:\\temp\\template\\NRP", "message_template.txt");
+            if (!File.Exists(templatePath))
+            {
+                MessageBox.Show("Template not found. Please check the location.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            var templateContent = File.ReadAllText(templatePath);
+            var message = templateContent
+                .Replace("{ticketNumber}", ticketNumber)
+                .Replace("{ticketSubject}", ticketSubject);
+
+            Clipboard.SetText(message);
+            MessageBox.Show("Message generated and copied to clipboard!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+
+        private async void InitializeWebView2()
+        {
+            webView2Control = new WebView2
+            {
+                Dock = DockStyle.Fill
+            };
+
+            try
+            {
+                Log("Initializing WebView2...");
+                await webView2Control.EnsureCoreWebView2Async();
+                webView2Control.Source = new Uri("https://ceva-ism.ivanticloud.com");
+
+                // Ajouter un gestionnaire d'événement pour détecter la fin du chargement de la page
+                webView2Control.NavigationCompleted += OnNavigationCompleted;
+
+                this.Controls.Add(webView2Control);
+                Log("WebView2 initialized and added to the form.");
+            }
+            catch (Exception ex)
+            {
+                Log($"Error initializing WebView2: {ex.Message}");
+                MessageBox.Show($"Erreur lors de l'initialisation de WebView2 : {ex.Message}", "Erreur", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+        private void InitializeLogging()
+        {
+            try
+            {
+                // Créer le répertoire si nécessaire
+                string logDirectory = Path.GetDirectoryName(logFilePath);
+                if (!Directory.Exists(logDirectory))
+                {
+                    Directory.CreateDirectory(logDirectory);
+                }
+
+                // Écrire une entête dans le fichier de log
+                File.WriteAllText(logFilePath, $"Log initialized on {DateTime.Now}\n");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Erreur lors de l'initialisation du système de log : {ex.Message}", "Erreur", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
         private void LoadTemplates()
         {
             if (!Directory.Exists(templateDirectory))
             {
-                MessageBox.Show($"Template directory not found: {templateDirectory}");
+                MessageBox.Show($"Le répertoire des templates est introuvable : {templateDirectory}", "Erreur", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
             templateTreeView.Nodes.Clear(); // Réinitialiser l’arborescence
-            var rootDirectoryInfo = new DirectoryInfo(templateDirectory);
-            var rootNode = CreateDirectoryNode(rootDirectoryInfo);
-            templateTreeView.Nodes.Add(rootNode);
-            templateTreeView.ExpandAll(); // Déplier tous les nœuds
+            try
+            {
+                // Charger les fichiers et dossiers
+                var rootDirectoryInfo = new DirectoryInfo(templateDirectory);
+                var rootNode = CreateDirectoryNode(rootDirectoryInfo);
+                templateTreeView.Nodes.Add(rootNode);
+                templateTreeView.ExpandAll(); // Déplier tous les nœuds par défaut
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Erreur lors du chargement des templates : {ex.Message}", "Erreur", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
+
 
 
         private TreeNode CreateDirectoryNode(DirectoryInfo directoryInfo)
         {
-            var directoryNode = new TreeNode(directoryInfo.Name);
+            var directoryNode = new TreeNode(directoryInfo.Name); // Nom du dossier comme nœud principal
 
-            foreach (var directory in directoryInfo.GetDirectories())
+            try
             {
-                directoryNode.Nodes.Add(CreateDirectoryNode(directory));
-            }
-
-            foreach (var file in directoryInfo.GetFiles("*.txt"))
-            {
-                var fileNode = new TreeNode(Path.GetFileNameWithoutExtension(file.Name))
+                // Ajouter les sous-dossiers
+                foreach (var directory in directoryInfo.GetDirectories())
                 {
-                    Tag = file.FullName
-                };
-                directoryNode.Nodes.Add(fileNode);
+                    directoryNode.Nodes.Add(CreateDirectoryNode(directory));
+                }
+
+                // Ajouter les fichiers
+                foreach (var file in directoryInfo.GetFiles("*.txt"))
+                {
+                    var fileNode = new TreeNode(file.Name) // Utilisez file.Name pour le nom du fichier
+                    {
+                        Tag = file.FullName // Stockez le chemin complet dans le Tag pour un accès futur
+                    };
+                    directoryNode.Nodes.Add(fileNode);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Erreur lors de la lecture du répertoire {directoryInfo.FullName} : {ex.Message}", "Erreur", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
 
             return directoryNode;
         }
 
+
         private void OnTemplateNodeDoubleClick(object sender, TreeNodeMouseClickEventArgs e)
         {
             if (e.Node.Tag is string filePath && File.Exists(filePath))
             {
-                var content = File.ReadAllText(filePath);
-                content = ReplaceSignaturePlaceholder(content); // Remplacement de {signature}
-                Clipboard.SetText(content);
-                MessageBox.Show($"Template '{e.Node.Text}' copied to clipboard with signature!", "Copied", MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-
-                // Charger les favoris actuels
-                var favorites = LoadFavoriteTemplates();
-
-                // Ajouter ou supprimer des favoris
-                if (favorites.Contains(filePath))
+                try
                 {
-                    favorites.Remove(filePath);
-                    e.Node.BackColor = System.Drawing.Color.White;
-                    RemoveFromFavoritesNode(e.Node);
-                }
-                else
-                {
-                    favorites.Add(filePath);
-                    e.Node.BackColor = System.Drawing.Color.LightBlue;
-                    AddToFavoritesNode(e.Node);
-                }
+                    // Lire le contenu du fichier template
+                    var content = File.ReadAllText(filePath);
 
-                // Sauvegarder les favoris mis à jour
-                SaveFavoriteTemplates(favorites);
+                    // Copier le contenu dans le presse-papiers
+                    Clipboard.SetText(content);
+
+                    // Afficher un message de confirmation
+                    MessageBox.Show($"Template '{e.Node.Text}' copied to clipboard!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    // En cas d'erreur, afficher un message
+                    MessageBox.Show($"Error copying template: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            else
+            {
+                // Si aucun fichier n'est associé au nœud
+                MessageBox.Show("No template file is associated with this item.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
+
 
         private void OnSearchTextChanged(object sender, EventArgs e)
         {
@@ -426,6 +559,9 @@ namespace ServiceDeskApp
                     var textBox = (TextBox)control;
                     textBox.BorderStyle = BorderStyle.FixedSingle;
                 }
+                templateTreeView.BackColor = backgroundColor;
+                templateTreeView.ForeColor = foregroundColor;
+
             }
         }
 
@@ -539,19 +675,11 @@ namespace ServiceDeskApp
         {
             try
             {
-                string logPath = Path.Combine(@"C:\Temp\template", "sync.log");
-                string logDirectory = Path.GetDirectoryName(logPath);
-
-                if (!Directory.Exists(logDirectory))
-                {
-                    Directory.CreateDirectory(logDirectory);
-                }
-
-                File.AppendAllText(logPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - {message}\n");
+                File.AppendAllText(logFilePath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - {message}\n");
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Failed to write to log: {ex.Message}", "Log Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Erreur lors de l'écriture dans le log : {ex.Message}", "Erreur", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -620,37 +748,39 @@ namespace ServiceDeskApp
 
             foreach (TreeNode child in node.Nodes)
             {
-                // Si un enfant correspond, déployer le nœud parent
                 if (ExpandMatchingNodes(child, searchTerm))
                 {
                     match = true;
                 }
             }
 
-            // Déployer ou replier en fonction de la correspondance
             if (match)
             {
                 node.BackColor = System.Drawing.Color.LightYellow;
-                node.Expand(); // Déployer le nœud si une correspondance est trouvée
+                node.Expand(); // Déplier les nœuds correspondants
             }
             else
             {
-                node.BackColor = System.Drawing.Color.White;
-                node.Collapse(); // Replier le nœud s'il ne correspond pas
+                node.BackColor = isDarkMode ? System.Drawing.Color.FromArgb(45, 45, 48) : System.Drawing.Color.White;
+                node.ForeColor = isDarkMode ? System.Drawing.Color.White : System.Drawing.Color.Black;
+                node.Collapse(); // Replier les nœuds qui ne correspondent pas
             }
 
-            return match; // Retourner si ce nœud ou ses enfants correspondent
+            return match;
         }
+
 
         private void ResetTree(TreeNodeCollection nodes)
         {
             foreach (TreeNode node in nodes)
             {
-                node.BackColor = System.Drawing.Color.White;
-                node.Collapse(); // Replier tous les nœuds
+                node.BackColor = isDarkMode ? System.Drawing.Color.FromArgb(45, 45, 48) : System.Drawing.Color.White;
+                node.ForeColor = isDarkMode ? System.Drawing.Color.White : System.Drawing.Color.Black;
+                node.Collapse();
                 ResetTree(node.Nodes);
             }
         }
+
         private void ExpandParentNodes(TreeNode node)
         {
             if (node.Parent != null)
@@ -671,22 +801,351 @@ namespace ServiceDeskApp
                 }
             }
         }
+
+        /*private void InitializeTicketFields()
+        {
+            // Label et champ pour le numéro de ticket
+            var ticketNumberLabel = new Label
+            {
+                Text = "Ticket Number:",
+                Dock = DockStyle.Top
+            };
+            ticketNumberTextBox = new TextBox
+            {
+                PlaceholderText = "Enter ticket number...",
+                Dock = DockStyle.Top
+            };
+
+            // Label et champ pour le sujet du ticket
+            var ticketSubjectLabel = new Label
+            {
+                Text = "Ticket Subject:",
+                Dock = DockStyle.Top
+            };
+            ticketSubjectTextBox = new TextBox
+            {
+                PlaceholderText = "Enter ticket subject...",
+                Dock = DockStyle.Top
+            };
+
+            // Bouton pour sauvegarder les informations
+            saveTicketInfoButton = new Button
+            {
+                Text = "Save Ticket Info",
+                Dock = DockStyle.Top
+            };
+            saveTicketInfoButton.Click += SaveTicketInfoButton_Click;
+
+            // Ajouter les contrôles au formulaire
+            this.Controls.Add(saveTicketInfoButton);
+            this.Controls.Add(ticketSubjectTextBox);
+            this.Controls.Add(ticketSubjectLabel);
+            this.Controls.Add(ticketNumberTextBox);
+            this.Controls.Add(ticketNumberLabel);
+        }
+       
+        private void SaveTicketInfoButton_Click(object sender, EventArgs e)
+        {
+            var ticketNumber = ticketNumberTextBox.Text;
+            var ticketSubject = ticketSubjectTextBox.Text;
+
+            if (string.IsNullOrEmpty(ticketNumber) || string.IsNullOrEmpty(ticketSubject))
+            {
+                MessageBox.Show("Please fill in both the ticket number and subject.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Générer la template remplie
+            var filledTemplate = LoadAndFillTemplate(ticketNumber, ticketSubject);
+            if (!string.IsNullOrEmpty(filledTemplate))
+            {
+                generatedTemplateTextBox.Text = filledTemplate;
+                MessageBox.Show("Template generated successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+
+         */
+
+        private void InitializeTicketTemplateField()
+        {
+            // Label pour la template générée
+            var templateLabel = new Label
+            {
+                Text = "Generated Template:",
+                Dock = DockStyle.Top
+            };
+
+            // Zone de texte pour afficher la template générée
+            generatedTemplateTextBox = new TextBox
+            {
+                Multiline = true,
+                ReadOnly = true,
+                ScrollBars = ScrollBars.Vertical,
+                Dock = DockStyle.Fill
+            };
+
+            // Ajouter le contrôle au formulaire
+            this.Controls.Add(generatedTemplateTextBox);
+            this.Controls.Add(templateLabel);
+        }
+        private string LoadAndFillTemplate(string ticketNumber, string ticketSubject)
+        {
+            var templatePath = Path.Combine(templateDirectory, "ticket_template.txt");
+
+            if (!File.Exists(templatePath))
+            {
+                MessageBox.Show($"Template file not found: {templatePath}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return string.Empty;
+            }
+
+            var templateContent = File.ReadAllText(templatePath);
+
+            // Remplacer les espaces réservés dans la template
+            return templateContent
+                .Replace("{ticketNumber}", ticketNumber)
+                .Replace("{ticketSubject}", ticketSubject);
+        }
+        private void OpenSettingsMenu(object sender, EventArgs e)
+        {
+            using (var settingsForm = new Form())
+            {
+                settingsForm.Text = "Settings";
+                settingsForm.Size = new System.Drawing.Size(500, 400);
+                settingsForm.StartPosition = FormStartPosition.CenterParent;
+
+                // Option: Dark Mode
+                var darkModeCheckbox = new CheckBox
+                {
+                    Text = "Enable Dark Mode",
+                    Checked = isDarkMode,
+                    Dock = DockStyle.Top
+                };
+                darkModeCheckbox.CheckedChanged += (s, args) =>
+                {
+                    isDarkMode = darkModeCheckbox.Checked;
+                    ApplyTheme();
+                };
+
+                // Option: Source selection
+                var sourceLabel = new Label
+                {
+                    Text = "Select File Source:",
+                    Dock = DockStyle.Top
+                };
+
+                var sourceComboBox = new ComboBox
+                {
+                    Dock = DockStyle.Top,
+                    DropDownStyle = ComboBoxStyle.DropDownList,
+                    Items = { "HTTP", "OneDrive", "Local Network" },
+                    SelectedIndex = 0 // Default to HTTP
+                };
+
+                sourceComboBox.SelectedIndexChanged += (s, args) =>
+                {
+                    UpdateActiveSource(sourceComboBox.SelectedItem.ToString());
+                };
+
+
+                // Option: Configure source paths
+                var localPathLabel = new Label
+                {
+                    Text = "Local Path:",
+                    Dock = DockStyle.Top
+                };
+                var localPathTextBox = new TextBox
+                {
+                    Dock = DockStyle.Top,
+                    Text = @"C:\Temp\template" // Default path
+                };
+
+                var httpUrlLabel = new Label
+                {
+                    Text = "HTTP URL:",
+                    Dock = DockStyle.Top
+                };
+                var httpUrlTextBox = new TextBox
+                {
+                    Dock = DockStyle.Top,
+                    Text = "http://example.com/templates" // Default HTTP URL
+                };
+
+                var onedrivePathLabel = new Label
+                {
+                    Text = "OneDrive Path:",
+                    Dock = DockStyle.Top
+                };
+                var onedrivePathTextBox = new TextBox
+                {
+                    Dock = DockStyle.Top,
+                    Text = @"C:\Users\YourUser\OneDrive\Templates" // Default OneDrive path
+                };
+
+                // Save button
+                var saveButton = new Button
+                {
+                    Text = "Save Settings",
+                    Dock = DockStyle.Bottom
+                };
+                saveButton.Click += (s, args) =>
+                {
+                    SaveSettings(sourceComboBox.SelectedItem.ToString(), localPathTextBox.Text, httpUrlTextBox.Text, onedrivePathTextBox.Text);
+                    MessageBox.Show("Settings saved successfully!", "Settings", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    settingsForm.Close();
+                };
+
+                // Add controls to the settings form
+                settingsForm.Controls.Add(saveButton);
+                settingsForm.Controls.Add(onedrivePathTextBox);
+                settingsForm.Controls.Add(onedrivePathLabel);
+                settingsForm.Controls.Add(httpUrlTextBox);
+                settingsForm.Controls.Add(httpUrlLabel);
+                settingsForm.Controls.Add(localPathTextBox);
+                settingsForm.Controls.Add(localPathLabel);
+                settingsForm.Controls.Add(sourceComboBox);
+                settingsForm.Controls.Add(sourceLabel);
+                settingsForm.Controls.Add(darkModeCheckbox);
+
+                settingsForm.ShowDialog();
+            }
+        }
+
+
+
+
+
+        private void DebugTreeViewNodes()
+        {
+            foreach (TreeNode node in templateTreeView.Nodes)
+            {
+                DebugNode(node);
+            }
+        }
+
+        private void DebugNode(TreeNode node)
+        {
+            Console.WriteLine($"Node Text: {node.Text}, Tag: {node.Tag}");
+            foreach (TreeNode childNode in node.Nodes)
+            {
+                DebugNode(childNode);
+            }
+        }
+        private async void OnNavigationCompleted(object sender, Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs e)
+        {
+            if (e.IsSuccess)
+            {
+                Log("Navigation completed successfully.");
+            }
+            else
+            {
+                Log($"Navigation failed. WebErrorStatus: {e.WebErrorStatus}");
+            }
+        }
+        private void SaveSettings(string activeSource, string localPath, string httpUrl, string onedrivePath)
+        {
+            var settings = new
+            {
+                ActiveSource = activeSource,
+                LocalPath = localPath,
+                HttpUrl = httpUrl,
+                OneDrivePath = onedrivePath,
+                IsDarkMode = isDarkMode
+            };
+
+            var settingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ServiceDeskApp", "settings.json");
+
+            Directory.CreateDirectory(Path.GetDirectoryName(settingsPath));
+            File.WriteAllText(settingsPath, JsonConvert.SerializeObject(settings, Formatting.Indented));
+        }
+
+
+
+        private void LoadSettings()
+        {
+            var settingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ServiceDeskApp", "settings.json");
+
+            if (!File.Exists(settingsPath))
+            {
+                return; // Use default values
+            }
+
+            var settings = JsonConvert.DeserializeObject<Dictionary<string, object>>(File.ReadAllText(settingsPath));
+
+            if (settings != null)
+            {
+                if (settings.TryGetValue("ActiveSource", out var activeSource))
+                {
+                    UpdateActiveSource(activeSource.ToString());
+                }
+
+                if (settings.TryGetValue("LocalPath", out var localPath))
+                {
+                    templateDirectory = localPath.ToString();
+                }
+
+                if (settings.TryGetValue("HttpUrl", out var httpUrl))
+                {
+                    // Use this value for HTTP sync
+                }
+
+                if (settings.TryGetValue("OneDrivePath", out var onedrivePath))
+                {
+                    // Use this value for OneDrive sync
+                }
+
+                if (settings.TryGetValue("IsDarkMode", out var darkMode))
+                {
+                    isDarkMode = Convert.ToBoolean(darkMode);
+                    ApplyTheme();
+                }
+            }
+        }
+        private void UpdateActiveSource(string selectedSource)
+        {
+            switch (selectedSource)
+            {
+                case "HTTP":
+                    // Logic for switching to HTTP source
+                    MessageBox.Show("HTTP source selected. Ensure URL is configured properly.", "Source Update", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    break;
+
+                case "OneDrive":
+                    // Logic for switching to OneDrive source
+                    MessageBox.Show("OneDrive source selected. Ensure OneDrive path is configured.", "Source Update", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    break;
+
+                case "Local Network":
+                    // Logic for switching to local network source
+                    MessageBox.Show("Local network source selected. Ensure network path is configured.", "Source Update", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    break;
+
+                default:
+                    MessageBox.Show("Unknown source selected.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    break;
+            }
+        }
         private void TemplateTreeView_DrawNode(object sender, DrawTreeNodeEventArgs e)
         {
-            // Appliquer les couleurs en fonction de l'état du nœud
+            // Couleurs basées sur le mode sombre ou clair
             var backgroundColor = isDarkMode ? System.Drawing.Color.FromArgb(45, 45, 48) : System.Drawing.Color.White;
-            var highlightColor = isDarkMode ? System.Drawing.Color.FromArgb(60, 60, 60) : System.Drawing.Color.LightYellow;
+            var highlightColor = isDarkMode ? System.Drawing.Color.FromArgb(85, 85, 85) : System.Drawing.Color.LightYellow;
             var textColor = isDarkMode ? System.Drawing.Color.White : System.Drawing.Color.Black;
 
-            if (!string.IsNullOrEmpty(searchBox.Text) && e.Node.Text.ToLower().Contains(searchBox.Text.ToLower()))
+            // Vérifiez si le nœud correspond à la recherche ou est sélectionné
+            if (searchBox != null && !string.IsNullOrEmpty(searchBox.Text) && e.Node.Text.ToLower().Contains(searchBox.Text.ToLower()))
             {
-                e.Graphics.FillRectangle(new SolidBrush(highlightColor), e.Bounds);
+                e.Graphics.FillRectangle(new SolidBrush(highlightColor), e.Bounds); // Surlignage pour correspondance
+            }
+            else if ((e.State & TreeNodeStates.Selected) != 0) // Surlignage de sélection
+            {
+                e.Graphics.FillRectangle(new SolidBrush(System.Drawing.Color.DarkSlateBlue), e.Bounds); // Couleur de surlignage pour le nœud sélectionné
             }
             else
             {
                 e.Graphics.FillRectangle(new SolidBrush(backgroundColor), e.Bounds);
             }
 
+            // Dessin du texte
             TextRenderer.DrawText(
                 e.Graphics,
                 e.Node.Text,
@@ -699,6 +1158,7 @@ namespace ServiceDeskApp
             // Empêcher le dessin par défaut
             e.DrawDefault = false;
         }
+
 
 
     }
