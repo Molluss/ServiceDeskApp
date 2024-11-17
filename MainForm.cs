@@ -60,6 +60,9 @@ namespace ServiceDeskApp
                 Font = new System.Drawing.Font("Segoe UI", 12) // Augmenter la taille de la police
             };
             templateTreeView.NodeMouseDoubleClick += OnTemplateNodeDoubleClick;
+            // Forcer le mode de dessin
+            templateTreeView.DrawMode = TreeViewDrawMode.OwnerDrawText;
+            templateTreeView.DrawNode += TemplateTreeView_DrawNode;
 
             // Ajouter les contrôles au formulaire
             this.Controls.Add(templateTreeView);
@@ -184,23 +187,33 @@ namespace ServiceDeskApp
 
         private bool FilterNode(TreeNode node, string searchTerm)
         {
-            bool match = node.Text.ToLower().Contains(searchTerm);
+            bool match = node.Text.ToLower().Contains(searchTerm.ToLower());
 
+            // Filtrer les enfants récursivement
             foreach (TreeNode child in node.Nodes)
             {
-                // Filtrer récursivement les enfants
                 match |= FilterNode(child, searchTerm);
             }
 
-            // Afficher ou cacher le nœud en fonction de la correspondance
-            node.BackColor = match ? System.Drawing.Color.LightYellow : System.Drawing.Color.White;
-            node.ForeColor = match ? System.Drawing.Color.Black : System.Drawing.Color.Gray; // Optionnel
-
-            node.EnsureVisible();
-            node.Collapse();
+            // Appliquer des couleurs adaptées en fonction du mode et des résultats
+            if (match)
+            {
+                node.BackColor = isDarkMode ? System.Drawing.Color.FromArgb(60, 60, 60) : System.Drawing.Color.LightYellow;
+                node.ForeColor = isDarkMode ? System.Drawing.Color.White : System.Drawing.Color.Black;
+                node.Expand(); // Déplier les nœuds correspondants
+            }
+            else
+            {
+                node.BackColor = isDarkMode ? System.Drawing.Color.FromArgb(45, 45, 48) : System.Drawing.Color.White;
+                node.ForeColor = isDarkMode ? System.Drawing.Color.White : System.Drawing.Color.Black;
+                node.Collapse(); // Replier les nœuds qui ne correspondent pas
+            }
 
             return match;
         }
+
+
+
 
         private void OnAddTemplate(object sender, EventArgs e)
         {
@@ -645,6 +658,46 @@ namespace ServiceDeskApp
                 node.Parent.Expand();
                 ExpandParentNodes(node.Parent);
             }
+        }
+        private void ResetTreeViewColors(TreeNodeCollection nodes)
+        {
+            foreach (TreeNode node in nodes)
+            {
+                node.BackColor = isDarkMode ? System.Drawing.Color.FromArgb(45, 45, 48) : System.Drawing.Color.White;
+                node.ForeColor = isDarkMode ? System.Drawing.Color.White : System.Drawing.Color.Black;
+                if (node.Nodes.Count > 0)
+                {
+                    ResetTreeViewColors(node.Nodes); // Réinitialiser récursivement
+                }
+            }
+        }
+        private void TemplateTreeView_DrawNode(object sender, DrawTreeNodeEventArgs e)
+        {
+            // Appliquer les couleurs en fonction de l'état du nœud
+            var backgroundColor = isDarkMode ? System.Drawing.Color.FromArgb(45, 45, 48) : System.Drawing.Color.White;
+            var highlightColor = isDarkMode ? System.Drawing.Color.FromArgb(60, 60, 60) : System.Drawing.Color.LightYellow;
+            var textColor = isDarkMode ? System.Drawing.Color.White : System.Drawing.Color.Black;
+
+            if (!string.IsNullOrEmpty(searchBox.Text) && e.Node.Text.ToLower().Contains(searchBox.Text.ToLower()))
+            {
+                e.Graphics.FillRectangle(new SolidBrush(highlightColor), e.Bounds);
+            }
+            else
+            {
+                e.Graphics.FillRectangle(new SolidBrush(backgroundColor), e.Bounds);
+            }
+
+            TextRenderer.DrawText(
+                e.Graphics,
+                e.Node.Text,
+                e.Node.NodeFont ?? templateTreeView.Font,
+                e.Bounds,
+                textColor,
+                TextFormatFlags.GlyphOverhangPadding
+            );
+
+            // Empêcher le dessin par défaut
+            e.DrawDefault = false;
         }
 
 
