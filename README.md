@@ -1,4 +1,3 @@
-Service Desk App
 Description
 Service Desk App est une application conçue pour simplifier les tâches des techniciens de support IT. Elle permet de :
 
@@ -64,7 +63,6 @@ Réseau local.
 OneDrive.
 Contributeurs
 Lucas (Lead Developer)
-Contributions supplémentaires : [Nom du contributeur]
 Dépannage
 Si vous rencontrez des problèmes :
 
